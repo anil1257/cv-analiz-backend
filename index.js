@@ -3,17 +3,27 @@ const cors = require("cors");
 const multer = require("multer");
 const fs = require("fs");
 const pdfParse = require("pdf-parse");
+const path = require("path");
 
 const app = express();
 app.use(cors());
-
-const upload = multer({ dest: "uploads/" });
+app.use(express.json());
 
 /* =========================
-   TEST ENDPOINT (ÇOK ÖNEMLİ)
+   UPLOAD FOLDER
+========================= */
+const UPLOAD_DIR = path.join(__dirname, "uploads");
+if (!fs.existsSync(UPLOAD_DIR)) {
+  fs.mkdirSync(UPLOAD_DIR);
+}
+
+const upload = multer({ dest: UPLOAD_DIR });
+
+/* =========================
+   TEST ENDPOINT
 ========================= */
 app.get("/", (req, res) => {
-  res.send("CV Analiz Backend ÇALIŞIYOR 💪");
+  res.send("✅ CV Analiz Backend ÇALIŞIYOR 💪");
 });
 
 /* =========================
@@ -54,7 +64,7 @@ app.post("/analyze", upload.single("cv"), async (req, res) => {
 
     res.json(result);
   } catch (e) {
-    console.error(e);
+    console.error("❌ ANALYZE ERROR:", e);
     res.status(500).json({ error: "CV analiz hatası" });
   }
 });
@@ -129,8 +139,17 @@ function analyzeSoftware(text) {
   return roleResult(s, sug, 30);
 }
 
-/* ===== DİĞERLERİ AYNEN KALDI ===== */
+/* ===== BASİT DİĞER ROLLER ===== */
+function analyzeEngineering(text) { return roleResult(20, ["Teknik projeler ekle."], 30); }
+function analyzeHealth(text) { return roleResult(20, ["Sertifikalarını belirt."], 30); }
+function analyzeEducation(text) { return roleResult(20, ["Staj ve kurs bilgisi ekle."], 30); }
+function analyzeCleaning(text) { return roleResult(15, ["Deneyim sürelerini yaz."], 20); }
+function analyzeService(text) { return roleResult(15, ["Müşteri ilişkileri vurgula."], 20); }
+function analyzeOffice(text) { return roleResult(15, ["Office programlarını belirt."], 20); }
 
+/* =========================
+   CAREER + SECTOR
+========================= */
 function detectCareerFields(text) {
   const fields = [];
   if (text.includes("github")) fields.push("Yazılım Stajyeri");
@@ -140,8 +159,8 @@ function detectCareerFields(text) {
 
 function calculateSectorScores(text) {
   const sectors = {
-    Yazilim: ["java","kotlin","android","node"],
-    Satis: ["satış","müşteri"],
+    Yazilim: ["java", "kotlin", "android", "node"],
+    Satis: ["satış", "müşteri"],
   };
 
   return Object.keys(sectors).map(sec => ({
@@ -152,8 +171,8 @@ function calculateSectorScores(text) {
 
 function extractStrengths(text) {
   const map = {
-    "Takım Çalışması": ["takım","ekip"],
-    "İletişim": ["iletişim","müşteri"]
+    "Takım Çalışması": ["takım", "ekip"],
+    "İletişim": ["iletişim", "müşteri"]
   };
 
   return Object.keys(map).filter(k =>
@@ -161,6 +180,9 @@ function extractStrengths(text) {
   );
 }
 
+/* =========================
+   FINAL RESULT
+========================= */
 function buildFinalResult(base, role, career, selectedCategory, sectorScores, strengths) {
   const total = Math.min(100, base.baseScore + role.roleScore);
 
@@ -175,6 +197,10 @@ function buildFinalResult(base, role, career, selectedCategory, sectorScores, st
   };
 }
 
-app.listen(3000, () => {
-  console.log("🔥 CV ANALIZ SERVER READY → http://localhost:3000");
+/* =========================
+   SERVER START (RENDER)
+========================= */
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log("🔥 CV ANALIZ SERVER READY → PORT:", PORT);
 });
