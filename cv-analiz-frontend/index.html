@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <title>CV Analiz Demo</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f4f4f4;
+      padding: 40px;
+    }
+    .box {
+      background: #fff;
+      padding: 25px;
+      max-width: 800px;
+      margin: auto;
+      border-radius: 8px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+    button {
+      padding: 10px 20px;
+      margin-top: 10px;
+      cursor: pointer;
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    h3 {
+      margin-top: 25px;
+      border-bottom: 1px solid #ddd;
+      padding-bottom: 5px;
+    }
+    ul {
+      margin-top: 5px;
+    }
+    .success {
+      color: green;
+      font-weight: bold;
+    }
+    .error {
+      color: red;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+<div class="box">
+  <h2>📄 CV Analiz Demo</h2>
+
+  <input type="file" id="cvFile" accept=".pdf">
+  <br>
+  <button id="analyzeBtn" onclick="analyzeCV()">Analiz Et</button>
+
+  <div id="result" style="margin-top:30px;">
+    Henüz analiz yapılmadı.
+  </div>
+</div>
+
+<script>
+async function analyzeCV() {
+  const fileInput = document.getElementById("cvFile");
+  const resultDiv = document.getElementById("result");
+  const btn = document.getElementById("analyzeBtn");
+
+  if (!fileInput.files.length) {
+    alert("Lütfen bir PDF dosyası seç.");
+    return;
+  }
+
+  btn.disabled = true;
+  resultDiv.innerHTML = "⏳ Analiz ediliyor...";
+
+  const formData = new FormData();
+  formData.append("cv", fileInput.files[0]);
+
+  try {
+    const res = await fetch("http://localhost:3000/analyze", {
+      method: "POST",
+      body: formData
+    });
+
+    const data = await res.json();
+
+    if (data.error) {
+      resultDiv.innerHTML = `<div class="error">${data.error}</div>`;
+      btn.disabled = false;
+      return;
+    }
+
+    renderResult(data);
+
+  } catch (err) {
+    resultDiv.innerHTML =
+      `<div class="error">Sunucuya bağlanılamadı</div>`;
+  }
+
+  btn.disabled = false;
+}
+
+function renderResult(data) {
+  let html = "";
+
+  html += `<p class="success">✅ CV başarıyla analiz edildi</p>`;
+
+  html += `<h3>👤 Kişisel Bilgiler</h3>`;
+  if (data.adSoyad) html += `<p><b>Ad Soyad:</b> ${data.adSoyad}</p>`;
+  if (data.email) html += `<p><b>E-posta:</b> ${data.email}</p>`;
+  if (data.telefon) html += `<p><b>Telefon:</b> ${data.telefon}</p>`;
+
+  if (data.egitim && data.egitim.length) {
+    html += `<h3>🎓 Eğitim</h3><ul>`;
+    data.egitim.forEach(e => html += `<li>${e}</li>`);
+    html += `</ul>`;
+  }
+
+  if (data.deneyim && data.deneyim.length) {
+    html += `<h3>💼 Deneyim</h3><ul>`;
+    data.deneyim.forEach(d => html += `<li>${d}</li>`);
+    html += `</ul>`;
+  }
+
+  if (data.yetenekler && data.yetenekler.length) {
+    html += `<h3>🛠️ Yetenekler</h3><ul>`;
+    data.yetenekler.forEach(y => html += `<li>${y}</li>`);
+    html += `</ul>`;
+  }
+
+  document.getElementById("result").innerHTML = html;
+}
+</script>
+
+</body>
+</html>
