@@ -4,7 +4,6 @@ const multer = require("multer");
 const fs = require("fs");
 const pdfParse = require("pdf-parse");
 const path = require("path");
-const fetch = require("node-fetch");
 
 const app = express();
 app.use(cors());
@@ -40,12 +39,11 @@ app.post("/analyze", upload.single("cv"), async (req, res) => {
     const pdfData = await pdfParse(dataBuffer);
     const text = pdfData.text.toLowerCase();
 
-    // =========================
-    // RULE BASED ANALYSIS
-    // =========================
+    /* =========================
+       RULE BASED ANALYSIS
+    ========================= */
 
     let score = 30;
-    let educationScore = 0;
     let position = "Genel Başvuru";
 
     const hasUniversity =
@@ -57,23 +55,26 @@ app.post("/analyze", upload.single("cv"), async (req, res) => {
       text.includes("mühendis") ||
       text.includes("engineering");
 
-    if (hasUniversity) educationScore += 20;
+    if (hasUniversity) score += 20;
+
     if (isEngineer) {
       position = "Mühendis";
       score += 15;
     }
 
-    score += educationScore;
-
     // sektör kelimeleri
-    const softwareWords = ["yazılım", "software", "java", "python", "c++"];
+    const softwareWords = ["yazılım", "software", "java", "python", "c++", "c#"];
     const salesWords = ["satış", "pazarlama", "müşteri"];
     const officeWords = ["ofis", "sekreter", "evrak", "rapor"];
     const healthWords = ["sağlık", "hemşire", "hasta", "klinik"];
     const productionWords = ["üretim", "fabrika", "makine", "operatör"];
 
     function countMatches(words) {
-      return words.filter(w => text.includes(w)).length * 10;
+      let count = 0;
+      words.forEach(w => {
+        if (text.includes(w)) count++;
+      });
+      return count * 20;
     }
 
     const sectorScores = [
@@ -84,20 +85,30 @@ app.post("/analyze", upload.single("cv"), async (req, res) => {
       { sector: "Üretim", score: countMatches(productionWords) }
     ];
 
-    // =========================
-    // AI YORUM
-    // =========================
+    /* =========================
+       BASİT AI YORUM (FALLBACK)
+    ========================= */
 
-    const aiComment = await getAIComment(text);
+    const suggestions = [];
+    if (!hasUniversity) suggestions.push("Eğitim bilgilerini daha açık belirt.");
+    if (sectorScores.every(s => s.score === 0))
+      suggestions.push("Pozisyona uygun teknik beceriler ekle.");
+    if (suggestions.length === 0)
+      suggestions.push("CV yapısı genel olarak iyi, deneyim detaylarını artırabilirsin.");
+
+    const strengths = [];
+    if (hasUniversity) strengths.push("Akademik altyapı");
+    if (isEngineer) strengths.push("Teknik profil");
+    if (strengths.length === 0) strengths.push("Öğrenmeye açık profil");
 
     res.json({
       score: Math.min(score, 95),
       pages: 1,
       position,
-      suggestions: aiComment.suggestions,
-      strengths: aiComment.strengths,
+      suggestions,
+      strengths,
       sectorScores,
-      careerNote: aiComment.careerNote
+      careerNote: "Profil geliştirildikçe daha iyi iş fırsatları yakalayabilirsin."
     });
 
   } catch (e) {
@@ -109,56 +120,9 @@ app.post("/analyze", upload.single("cv"), async (req, res) => {
 });
 
 /* =========================
-   AI COMMENT
-========================= */
-async function getAIComment(cvText) {
-  try {
-    const prompt = `
-Bu CV için kısa öneriler ve güçlü yönler yaz.
-Sadece JSON döndür:
-
-{
- "suggestions": ["..."],
- "strengths": ["..."],
- "careerNote": "..."
-}
-
-CV:
-"""${cvText.slice(0, 4000)}"""
-`;
-
-    const response = await fetch("https://router.huggingface.co/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${process.env.HF_TOKEN}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: "mistralai/Mistral-7B-Instruct-v0.2",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.4,
-        max_tokens: 400
-      })
-    });
-
-    const data = await response.json();
-    let content = data?.choices?.[0]?.message?.content || "";
-    content = content.replace(/```json|```/g, "").trim();
-    return JSON.parse(content);
-
-  } catch (e) {
-    return {
-      suggestions: ["CV detaylarını artır.", "Teknik becerileri net yaz."],
-      strengths: ["Öğrenmeye açık profil"],
-      careerNote: "Profil geliştirildiğinde daha iyi fırsatlar yakalanabilir."
-    };
-  }
-}
-
-/* =========================
    START
 ========================= */
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log("🔥 CV ANALIZ SERVER READY →", PORT);
 });
