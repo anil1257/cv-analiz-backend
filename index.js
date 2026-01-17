@@ -22,7 +22,7 @@ const upload = multer({ dest: UPLOAD_DIR });
    TEST
 ========================= */
 app.get("/", (req, res) => {
-  res.send("✅ CV ANALIZ HYBRID SERVER ÇALIŞIYOR");
+  res.send("✅ CV ANALIZ AI SERVER AKTIF");
 });
 
 /* =========================
@@ -32,21 +32,72 @@ app.post("/analyze", upload.single("cv"), async (req, res) => {
   let filePath;
 
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: "CV gelmedi" });
-    }
+    if (!req.file) return res.status(400).json({ error: "CV gelmedi" });
 
     filePath = req.file.path;
+
     const dataBuffer = fs.readFileSync(filePath);
     const pdfData = await pdfParse(dataBuffer);
     const text = pdfData.text.toLowerCase();
 
-    const ruleResult = ruleBasedAnalysis(text);
-    const aiPart = await aiComment(text, ruleResult.position);
+    // =========================
+    // RULE BASED ANALYSIS
+    // =========================
+
+    let score = 30;
+    let educationScore = 0;
+    let position = "Genel Başvuru";
+
+    const hasUniversity =
+      text.includes("üniversite") ||
+      text.includes("fakülte") ||
+      text.includes("lisans");
+
+    const isEngineer =
+      text.includes("mühendis") ||
+      text.includes("engineering");
+
+    if (hasUniversity) educationScore += 20;
+    if (isEngineer) {
+      position = "Mühendis";
+      score += 15;
+    }
+
+    score += educationScore;
+
+    // sektör kelimeleri
+    const softwareWords = ["yazılım", "software", "java", "python", "c++"];
+    const salesWords = ["satış", "pazarlama", "müşteri"];
+    const officeWords = ["ofis", "sekreter", "evrak", "rapor"];
+    const healthWords = ["sağlık", "hemşire", "hasta", "klinik"];
+    const productionWords = ["üretim", "fabrika", "makine", "operatör"];
+
+    function countMatches(words) {
+      return words.filter(w => text.includes(w)).length * 10;
+    }
+
+    const sectorScores = [
+      { sector: "Yazılım", score: countMatches(softwareWords) },
+      { sector: "Satış", score: countMatches(salesWords) },
+      { sector: "Ofis", score: countMatches(officeWords) },
+      { sector: "Sağlık", score: countMatches(healthWords) },
+      { sector: "Üretim", score: countMatches(productionWords) }
+    ];
+
+    // =========================
+    // AI YORUM
+    // =========================
+
+    const aiComment = await getAIComment(text);
 
     res.json({
-      ...ruleResult,
-      ...aiPart
+      score: Math.min(score, 95),
+      pages: 1,
+      position,
+      suggestions: aiComment.suggestions,
+      strengths: aiComment.strengths,
+      sectorScores,
+      careerNote: aiComment.careerNote
     });
 
   } catch (e) {
@@ -58,62 +109,13 @@ app.post("/analyze", upload.single("cv"), async (req, res) => {
 });
 
 /* =========================
-   RULE BASED
-========================= */
-function ruleBasedAnalysis(text) {
-
-  let score = 30;
-  let position = "Genel Başvuru";
-
-  const hasUniversity = /üniversite|fakülte|mühendis/.test(text);
-  const hasProduction = /bakım|üretim|tpm|kaizen|arıza|makine/.test(text);
-  const hasSoftware = /yazılım|software|java|python|c\+\+|react/.test(text);
-  const hasSales = /satış|pazarlama|müşteri/.test(text);
-  const hasOffice = /ofis|excel|raporlama/.test(text);
-  const hasHealth = /hastane|sağlık|klinik/.test(text);
-
-  if (hasUniversity) score += 20;
-  if (hasProduction) score += 20;
-  if (hasSoftware) score += 15;
-  if (hasSales) score += 10;
-  if (hasOffice) score += 10;
-  if (hasHealth) score += 10;
-
-  if (hasUniversity && hasProduction) position = "Mühendis (Üretim/Bakım)";
-  else if (hasSoftware) position = "Yazılım";
-  else if (hasSales) position = "Satış";
-  else if (hasOffice) position = "Ofis";
-  else if (hasHealth) position = "Sağlık";
-
-  if (score > 95) score = 95;
-
-  const sectorScores = [
-    { sector: "Yazılım", score: hasSoftware ? 70 : 20 },
-    { sector: "Satış", score: hasSales ? 65 : 25 },
-    { sector: "Ofis", score: hasOffice ? 60 : 30 },
-    { sector: "Sağlık", score: hasHealth ? 65 : 20 },
-    { sector: "Üretim", score: hasProduction ? 80 : 35 }
-  ];
-
-  return {
-    score,
-    pages: 1,
-    position,
-    sectorScores
-  };
-}
-
-/* =========================
    AI COMMENT
 ========================= */
-async function aiComment(text, position) {
-
-  const prompt = `
-Bu kişi için meslek alanı: ${position}
-
-CV metni aşağıdadır.
-
-Sadece aşağıdaki JSON formatında cevap ver:
+async function getAIComment(cvText) {
+  try {
+    const prompt = `
+Bu CV için kısa öneriler ve güçlü yönler yaz.
+Sadece JSON döndür:
 
 {
  "suggestions": ["..."],
@@ -122,10 +124,9 @@ Sadece aşağıdaki JSON formatında cevap ver:
 }
 
 CV:
-"""${text.slice(0, 4000)}"""
+"""${cvText.slice(0, 4000)}"""
 `;
 
-  try {
     const response = await fetch("https://router.huggingface.co/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -136,22 +137,20 @@ CV:
         model: "mistralai/Mistral-7B-Instruct-v0.2",
         messages: [{ role: "user", content: prompt }],
         temperature: 0.4,
-        max_tokens: 600
+        max_tokens: 400
       })
     });
 
     const data = await response.json();
     let content = data?.choices?.[0]?.message?.content || "";
-
     content = content.replace(/```json|```/g, "").trim();
     return JSON.parse(content);
 
   } catch (e) {
-    console.error("❌ AI ERROR:", e);
     return {
-      suggestions: ["CV'de güçlü alanları daha net vurgula.", "Pozisyona özel teknik becerileri ön plana çıkar."],
-      strengths: ["Teknik altyapı", "Saha deneyimi"],
-      careerNote: "Profil geliştikçe daha iyi fırsatlar yakalayabilirsin."
+      suggestions: ["CV detaylarını artır.", "Teknik becerileri net yaz."],
+      strengths: ["Öğrenmeye açık profil"],
+      careerNote: "Profil geliştirildiğinde daha iyi fırsatlar yakalanabilir."
     };
   }
 }
@@ -161,5 +160,5 @@ CV:
 ========================= */
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log("🔥 HYBRID CV ANALIZ SERVER READY:", PORT);
+  console.log("🔥 CV ANALIZ SERVER READY →", PORT);
 });
