@@ -4,7 +4,6 @@ const multer = require("multer");
 const fs = require("fs");
 const pdfParse = require("pdf-parse");
 const path = require("path");
-const fetch = require("node-fetch");
 
 const app = express();
 app.use(cors());
